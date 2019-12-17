@@ -1,0 +1,211 @@
+---
+title: 'Bank Marketing: Exploratory and Predictive Analysis'
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# importing libraries
+
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(ggplot2)
+library(gridExtra)
+library(pheatmap)
+
+```
+
+1 - Exploratory Data Analysis
+
+1.1 - Knowing the dataset
+
+Source:
+https://archive.ics.uci.edu/ml/datasets/Bank+Marketing#
+
+Attribute Information:
+
+About client features:
+
+-age
+
+-job (type of job)
+
+-marital (marital status)
+
+-education
+
+-default (has credit in default? 'no','yes','unknown')
+
+-balance
+
+-housing (has housing loan?'no','yes','unknown')
+
+-loan (has personal loan?'no','yes','unknown')
+
+About current campaign:
+
+-contact (communication type: 'cellular','telephone')
+
+-duration (last contact duration, in seconds)
+
+Important note: the duration attribute highly affects the output target (e.g., if duration=0 then y='no'). Yet, the duration is not known before a call is performed. Also, after the end of the call y is obviously known. Thus, this input should only be included for benchmark purposes and should be discarded if the intention is to have a realistic predictive model.
+
+-day (last contact day of the week)
+
+-month (last contact month of year)
+
+-campaign (number of contacts performed during this campaign and for this client)
+
+-deposit (has the client subscribed a term deposit?'yes','no')
+
+About previous contacts/campaign:
+
+-pdays (number of days that passed by after the client was last contacted from a previous campaign, 999 means client was not previously contacted)
+
+-previous (number of contacts performed before this campaign and for this client)
+
+-poutcome (outcome of the previous marketing campaign: 'failure','nonexistent','success')
+
+```{r}
+df_ <- read.csv("bank-full.csv", sep=";")
+dim(df_)
+```
+
+1.2- Some checkings
+
+```{r}
+# remove duplicated rows
+df <- unique(df_)
+dim(df)
+```
+No duplicate rows
+
+```{r}
+# check missing values
+df <- na.omit(df)
+dim(df)
+```
+No missing values
+```{r}
+# checking types
+sapply(df, class)
+```
+```{r echo=TRUE}
+head(df)
+```
+```{r}
+summary(df)
+```
+```{r}
+summary(Filter(is.factor, df))
+```
+```{r}
+#checking class balance
+prop.table(table(df$y))
+```
+
+1.3 Partitioning, creating a Test Set
+
+```{r}
+train.index <- createDataPartition(df$y, p = .8, list = FALSE)
+train <- df[ train.index,]
+test  <- df[-train.index,]
+```
+
+1.4 Plots for numerical variables
+
+```{r}
+pheatmap(cor(Filter(is.integer, train)), display_numbers = TRUE)
+```
+
+1.5 Plots for categorical variables
+
+```{r}
+ggplot(train, aes(x = marital, fill=y)) +
+    geom_bar(position = position_dodge()) +
+    theme_classic() +labs(fill="Deposit")
+```
+
+```{r}
+ggplot(train, aes(x = education, fill=y)) +
+    geom_bar(position = position_dodge()) +
+    theme_classic() +labs(fill="Deposit")
+```
+
+```{r}
+ggplot(train, aes(x = contact, fill=y)) +
+    geom_bar(position = position_dodge()) +
+    theme_classic() +labs(fill="Deposit")
+```
+
+```{r}
+ggplot(train, aes(x = job, fill=y)) +
+    geom_bar(position = position_dodge()) +
+    theme_classic() + labs(fill="Deposit") + theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+```
+
+2 - Predictive Analysis
+
+Note that, one of the many qualities of Decision Trees is that they require very little data preparation. In particular, they don't require feature scaling or centering.
+
+```{r}
+fit <- rpart(y~., data = train, method = 'class')
+fit
+```
+
+Here, the details of how the split is made at each step is given. 
+For better interpretation, we draw the decision tree itself.
+
+```{r}
+rpart.plot(fit, extra= 106)
+```
+
+You start at the root node (the top of the graph). 
+
+At the top, it is the overall probability of saying "yes" for the term deposit. It shows the proportion of clients who subscribe to a term deposit. 12 % subscribed.
+
+This node asks whether the duration of the call is < 525 seconds. If yes, then you go down to the root's left child node (depth 2). 89 percent have call durations < 525 with a probability of taking a subscription of 8 percent.
+
+In the second node, you ask if the outcome of the previous marketing was a "failure", "other" or "unknown". If yes, then the chance of subscription is 62 percent.
+
+You keep on going like that to understand what features impact the likelihood of subscription.
+
+Prediction :
+
+```{r}
+predict_unseen <-predict(fit, test, type = 'class')
+
+table_mat <- table(test$y, predict_unseen)
+table_mat
+```
+
+The model classified 7788 clients who don't take a subscription and 371 who do correctly.
+
+```{r}
+accuracy_Test <- sum(diag(table_mat)) / sum(table_mat)
+print(paste('Accuracy for test', accuracy_Test))
+```
+
+This model is correct in 90% of it's predictions.
+
+Tuning the hyper-parameters
+```{r}
+accuracy_tune <- function(fit) {
+    predict_unseen <- predict(fit, test, type = 'class')
+    table_mat <- table(test$y, predict_unseen)
+    accuracy_Test <- sum(diag(table_mat)) / sum(table_mat)
+    accuracy_Test
+}
+```
+```{r}
+control <- rpart.control(minsplit = 4,
+    minbucket = round(4 / 3),
+    maxdepth = 5,
+    cp = 0)
+tune_fit <- rpart(y~., data = train, method = 'class', control = control)
+accuracy_tune(tune_fit)
+```
+Tuning the parameters to a specific set of values doesn't improve the accuracy much. 
